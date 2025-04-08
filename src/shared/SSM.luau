@@ -22,7 +22,6 @@ export type SSMObject = {
     _stateChangedSignal: BindableEvent?,
     _stateChangedConnection: RBXScriptConnection?,
     _processingState: boolean?,
-    _currentTask: thread?, -- Added to track the current running task
     
     Start: (self: SSMObject) -> (),
     Stop: (self: SSMObject) -> (),
@@ -60,7 +59,6 @@ function SSM.new() : SSMObject
     self.Actions = {}
     self.Running = false
     self._processingState = false
-    self._currentTask = nil -- Initialize the task tracker
     self._stateChangedSignal = Instance.new("BindableEvent")
     
     self._stateChangedConnection = self._stateChangedSignal.Event:Connect(function(newState)
@@ -70,18 +68,7 @@ function SSM.new() : SSMObject
             self.Actions[newState].Running = true
             if self.Actions[newState].funct then
                 self._processingState = true
-                
-                -- Cancel previous task if it exists
-                if self._currentTask then
-                    task.cancel(self._currentTask)
-                    self._currentTask = nil
-                end
-                
-                -- Spawn new task for the state function
-                self._currentTask = task.spawn(function()
-                    self.Actions[newState].funct(self)
-                end)
-                
+                self.Actions[newState].funct(self)
                 self._processingState = false
             end
         end
@@ -107,18 +94,7 @@ function SSM:Start()
         self.Actions[self.State].Running = true
         if self.Actions[self.State].funct then
             self._processingState = true
-            
-            -- Cancel previous task if it exists
-            if self._currentTask then
-                task.cancel(self._currentTask)
-                self._currentTask = nil
-            end
-            
-            -- Spawn new task for the state function
-            self._currentTask = task.spawn(function()
-                self.Actions[self.State].funct(self)
-            end)
-            
+            self.Actions[self.State].funct(self)
             self._processingState = false
         end
     end
@@ -127,9 +103,8 @@ end
 --[[
     Stops the state machine if it's currently running.
     
-    Sets the running state to false, marks the current state's action
-    as not running if a state exists and has an associated action,
-    and cancels any running task.
+    Sets the running state to false and marks the current state's action
+    as not running if a state exists and has an associated action.
     
     @return void
 ]]
@@ -137,12 +112,6 @@ function SSM:Stop()
     if not self.Running then return end
     
     self.Running = false
-    
-    -- Cancel current task if it exists
-    if self._currentTask then
-        task.cancel(self._currentTask)
-        self._currentTask = nil
-    end
     
     if self.State and self.Actions[self.State] then
         self.Actions[self.State].Running = false
@@ -261,12 +230,6 @@ function SSM:ChangeState(newState: string): boolean
     
     if self.State and self.Actions[self.State] then
         self.Actions[self.State].Running = false
-    end
-    
-    -- Cancel current task if it exists
-    if self._currentTask then
-        task.cancel(self._currentTask)
-        self._currentTask = nil
     end
     
     self.State = newState
