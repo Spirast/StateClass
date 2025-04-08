@@ -22,6 +22,7 @@ export type SSMObject = {
     _stateChangedSignal: BindableEvent?,
     _stateChangedConnection: RBXScriptConnection?,
     _processingState: boolean?,
+    _currentCoroutine: thread?,
     
     Start: (self: SSMObject) -> (),
     Stop: (self: SSMObject) -> (),
@@ -49,7 +50,6 @@ SSM.__index = SSM
 --[[
     Creates a new SSM (Spirast State Machine) instance.
     
-    @param character Model - The character model to associate with the state machine
     @return SSMObject - A new state machine instance with initialized properties
 ]]
 function SSM.new() : SSMObject
@@ -59,6 +59,7 @@ function SSM.new() : SSMObject
     self.Actions = {}
     self.Running = false
     self._processingState = false
+    self._currentCoroutine = nil
     self._stateChangedSignal = Instance.new("BindableEvent")
     
     self._stateChangedConnection = self._stateChangedSignal.Event:Connect(function(newState)
@@ -68,7 +69,22 @@ function SSM.new() : SSMObject
             self.Actions[newState].Running = true
             if self.Actions[newState].funct then
                 self._processingState = true
-                self.Actions[newState].funct(self)
+                
+                -- Cancel previous coroutine if it exists
+                if self._currentCoroutine and coroutine.status(self._currentCoroutine) ~= "dead" then
+                    coroutine.close(self._currentCoroutine)
+                end
+                
+                -- Create and start a new coroutine for the state function
+                self._currentCoroutine = coroutine.create(function()
+                    self.Actions[newState].funct(self)
+                end)
+                
+                local success, errorMsg = coroutine.resume(self._currentCoroutine)
+                if not success then
+                    warn("Error in state function for state '" .. newState .. "': " .. tostring(errorMsg))
+                end
+                
                 self._processingState = false
             end
         end
@@ -94,7 +110,17 @@ function SSM:Start()
         self.Actions[self.State].Running = true
         if self.Actions[self.State].funct then
             self._processingState = true
-            self.Actions[self.State].funct(self)
+            
+            -- Create and start a coroutine for the current state
+            self._currentCoroutine = coroutine.create(function()
+                self.Actions[self.State].funct(self)
+            end)
+            
+            local success, errorMsg = coroutine.resume(self._currentCoroutine)
+            if not success then
+                warn("Error in state function for state '" .. self.State .. "': " .. tostring(errorMsg))
+            end
+            
             self._processingState = false
         end
     end
@@ -103,8 +129,9 @@ end
 --[[
     Stops the state machine if it's currently running.
     
-    Sets the running state to false and marks the current state's action
-    as not running if a state exists and has an associated action.
+    Sets the running state to false, marks the current state's action
+    as not running if a state exists and has an associated action,
+    and cancels any running coroutine.
     
     @return void
 ]]
@@ -112,6 +139,12 @@ function SSM:Stop()
     if not self.Running then return end
     
     self.Running = false
+    
+    -- Cancel current coroutine if it exists
+    if self._currentCoroutine and coroutine.status(self._currentCoroutine) ~= "dead" then
+        coroutine.close(self._currentCoroutine)
+        self._currentCoroutine = nil
+    end
     
     if self.State and self.Actions[self.State] then
         self.Actions[self.State].Running = false
@@ -226,6 +259,12 @@ end
 function SSM:ChangeState(newState: string): boolean
     if not self.Actions[newState] then
         return false
+    end
+    
+    -- Cancel current coroutine if it exists
+    if self._currentCoroutine and coroutine.status(self._currentCoroutine) ~= "dead" then
+        coroutine.close(self._currentCoroutine)
+        self._currentCoroutine = nil
     end
     
     if self.State and self.Actions[self.State] then
