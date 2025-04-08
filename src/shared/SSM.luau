@@ -14,7 +14,7 @@
     @spirast
 ]]
 
-
+-- Types
 export type SSMObject = {
     State: string?,
     Actions: {[string]: Definition},
@@ -42,6 +42,7 @@ export type Definition = {
     Disabled: boolean,
 }
 
+-- Class
 local SSM = {}
 SSM.__index = SSM
 
